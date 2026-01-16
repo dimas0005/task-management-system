@@ -1,4 +1,3 @@
-const User = require('../models/User');
 /**
  * User Repository - Mengelola penyimpanan dan pengambilan data User
  * 
@@ -201,7 +200,7 @@ class UserRepository {
         return this.findAll().filter(user => 
             user.username.includes(searchTerm) ||
             user.email.includes(searchTerm) ||
-            user.fullName.toLowerCase().includes(searchTerm)
+            (user.fullName && user.fullName.toLowerCase().includes(searchTerm))
         );
     }
     
@@ -230,6 +229,13 @@ class UserRepository {
     _loadUsersFromStorage() {
         try {
             const usersData = this.storage.load(this.storageKey, []);
+            
+            // PERBAIKAN DI SINI: Pastikan usersData adalah array
+            if (!Array.isArray(usersData)) {
+                console.warn('usersData is not an array, resetting to empty array');
+                this._saveUsersToStorage(); // Reset dengan array kosong
+                return;
+            }
             
             usersData.forEach(userData => {
                 try {
