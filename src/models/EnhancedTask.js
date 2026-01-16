@@ -259,4 +259,4 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = EnhancedTask;
 } else {
     window.EnhancedTask = EnhancedTask;
-}
+}   
