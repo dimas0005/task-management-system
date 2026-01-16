@@ -1,46 +1,40 @@
 /**
  * Task Controller - Mengatur alur kerja task management
  * 
- * Controller dalam MVC Pattern:
- * - Menerima input dari user (via View)
- * - Memproses dengan bantuan Model dan Repository
- * - Mengirim response kembali ke View
- * - Tidak mengandung business logic (itu ada di Model/Service)
+ * Handles:
+ * - Task creation, update, deletion
+ * - Task assignment dan filtering
+ * - Task statistics dan reporting
  */
 class TaskController {
     constructor(taskRepository, userRepository) {
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
-        this.currentUser = null; // User yang sedang login
+        this.currentUser = null;
     }
     
     /**
-     * Set current user (simulasi login)
+     * Set current user untuk operasi task
      * @param {string} userId - User ID
      */
     setCurrentUser(userId) {
         this.currentUser = this.userRepository.findById(userId);
-        if (!this.currentUser) {
-            throw new Error('User tidak ditemukan');
-        }
     }
     
     /**
-     * Buat task baru
-     * @param {Object} taskData - Data task dari form
+     * Create new task
+     * @param {Object} taskData - Task data
      * @returns {Object} - Response dengan task yang dibuat atau error
      */
     createTask(taskData) {
         try {
-            // Validasi: user harus login
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk membuat task'
                 };
             }
             
-            // Validasi input
             if (!taskData.title || taskData.title.trim() === '') {
                 return {
                     success: false,
@@ -48,31 +42,30 @@ class TaskController {
                 };
             }
             
-            // Set owner ke current user
-            const taskToCreate = {
-                ...taskData,
-                ownerId: this.currentUser.id,
-                assigneeId: taskData.assigneeId || this.currentUser.id
-            };
+            // Set owner ID dari current user
+            taskData.ownerId = this.currentUser.id;
             
-            // Validasi assignee jika ada
-            if (taskToCreate.assigneeId !== this.currentUser.id) {
-                const assignee = this.userRepository.findById(taskToCreate.assigneeId);
+            // Handle assignee
+            if (taskData.assigneeId === 'self') {
+                taskData.assigneeId = this.currentUser.id;
+            } else if (taskData.assigneeId) {
+                // Validasi assignee exists
+                const assignee = this.userRepository.findById(taskData.assigneeId);
                 if (!assignee) {
                     return {
                         success: false,
-                        error: 'User yang di-assign tidak ditemukan'
+                        error: 'Assignee tidak ditemukan'
                     };
                 }
             }
             
-            // Buat task melalui repository
-            const task = this.taskRepository.create(taskToCreate);
+            // Buat task
+            const task = this.taskRepository.create(taskData);
             
             return {
                 success: true,
                 data: task,
-                message: `Task "${task.title}" berhasil dibuat`
+                message: 'Task berhasil dibuat'
             };
             
         } catch (error) {
@@ -84,32 +77,42 @@ class TaskController {
     }
     
     /**
-     * Ambil semua task user
-     * @param {Object} filters - Filter options
-     * @returns {Object} - Response dengan array task
+     * Get all tasks for current user
+     * @param {Object} options - Filter dan sort options
+     * @returns {Object} - Response dengan list task
      */
-    getTasks(filters = {}) {
+    getTasks(options = {}) {
         try {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk melihat task'
                 };
             }
             
-            // Set filter untuk current user
-            const userFilters = {
-                ...filters,
+            // Filter berdasarkan current user
+            const filters = {
                 ownerId: this.currentUser.id
             };
             
-            // Ambil task dengan filter
-            let tasks = this.taskRepository.filter(userFilters);
+            // Apply additional filters
+            if (options.status && options.status !== 'all') {
+                filters.status = options.status;
+            }
             
-            // Sort berdasarkan parameter
-            const sortBy = filters.sortBy || 'createdAt';
-            const sortOrder = filters.sortOrder || 'desc';
-            tasks = this.taskRepository.sort(tasks, sortBy, sortOrder);
+            let tasks = this.taskRepository.filter(filters);
+            
+            // Apply search if provided
+            if (options.searchQuery && options.searchQuery.trim() !== '') {
+                const searchResults = this.taskRepository.search(options.searchQuery);
+                // Filter search results untuk current user
+                tasks = searchResults.filter(task => task.ownerId === this.currentUser.id);
+            }
+            
+            // Apply sorting
+            if (options.sortBy) {
+                tasks = this.taskRepository.sort(tasks, options.sortBy, options.sortOrder || 'desc');
+            }
             
             return {
                 success: true,
@@ -126,7 +129,7 @@ class TaskController {
     }
     
     /**
-     * Ambil task berdasarkan ID
+     * Get single task by ID
      * @param {string} taskId - Task ID
      * @returns {Object} - Response dengan task atau error
      */
@@ -135,7 +138,7 @@ class TaskController {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk melihat task'
                 };
             }
             
@@ -148,11 +151,11 @@ class TaskController {
                 };
             }
             
-            // Cek permission: hanya owner atau assignee yang bisa lihat
-            if (task.ownerId !== this.currentUser.id && task.assigneeId !== this.currentUser.id) {
+            // Cek permission (hanya owner yang bisa lihat)
+            if (task.ownerId !== this.currentUser.id) {
                 return {
                     success: false,
-                    error: 'Anda tidak memiliki akses ke task ini'
+                    error: 'Tidak memiliki akses ke task ini'
                 };
             }
             
@@ -180,12 +183,12 @@ class TaskController {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk mengupdate task'
                 };
             }
             
+            // Cek task exists dan permission
             const task = this.taskRepository.findById(taskId);
-            
             if (!task) {
                 return {
                     success: false,
@@ -193,27 +196,22 @@ class TaskController {
                 };
             }
             
-            // Cek permission: hanya owner yang bisa update
             if (task.ownerId !== this.currentUser.id) {
                 return {
                     success: false,
-                    error: 'Hanya owner yang bisa mengubah task'
+                    error: 'Tidak memiliki akses untuk mengupdate task ini'
                 };
             }
             
-            // Validasi assignee jika ada update
-            if (updates.assigneeId) {
-                const assignee = this.userRepository.findById(updates.assigneeId);
-                if (!assignee) {
-                    return {
-                        success: false,
-                        error: 'User yang di-assign tidak ditemukan'
-                    };
-                }
-            }
-            
-            // Update task melalui repository
+            // Update task
             const updatedTask = this.taskRepository.update(taskId, updates);
+            
+            if (!updatedTask) {
+                return {
+                    success: false,
+                    error: 'Gagal mengupdate task'
+                };
+            }
             
             return {
                 success: true,
@@ -230,7 +228,7 @@ class TaskController {
     }
     
     /**
-     * Hapus task
+     * Delete task
      * @param {string} taskId - Task ID
      * @returns {Object} - Response success atau error
      */
@@ -239,12 +237,12 @@ class TaskController {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk menghapus task'
                 };
             }
             
+            // Cek task exists dan permission
             const task = this.taskRepository.findById(taskId);
-            
             if (!task) {
                 return {
                     success: false,
@@ -252,68 +250,19 @@ class TaskController {
                 };
             }
             
-            // Cek permission: hanya owner yang bisa hapus
             if (task.ownerId !== this.currentUser.id) {
                 return {
                     success: false,
-                    error: 'Hanya owner yang bisa menghapus task'
+                    error: 'Tidak memiliki akses untuk menghapus task ini'
                 };
             }
             
-            // Hapus task melalui repository
-            const deleted = this.taskRepository.delete(taskId);
-            
-            if (deleted) {
-                return {
-                    success: true,
-                    message: `Task "${task.title}" berhasil dihapus`
-                };
-            } else {
-                return {
-                    success: false,
-                    error: 'Gagal menghapus task'
-                };
-            }
-            
-        } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-    
-    /**
-     * Toggle status task (complete/incomplete)
-     * @param {string} taskId - Task ID
-     * @returns {Object} - Response dengan task yang diupdate
-     */
-    toggleTaskStatus(taskId) {
-        try {
-            const task = this.taskRepository.findById(taskId);
-            
-            if (!task) {
-                return {
-                    success: false,
-                    error: 'Task tidak ditemukan'
-                };
-            }
-            
-            // Assignee juga bisa toggle status
-            if (task.ownerId !== this.currentUser.id && task.assigneeId !== this.currentUser.id) {
-                return {
-                    success: false,
-                    error: 'Anda tidak memiliki akses ke task ini'
-                };
-            }
-            
-            const newStatus = task.isCompleted ? 'pending' : 'completed';
-            const updatedTask = this.taskRepository.update(taskId, { status: newStatus });
+            // Delete task
+            const success = this.taskRepository.delete(taskId);
             
             return {
-                success: true,
-                data: updatedTask,
-                message: `Task ${newStatus === 'completed' ? 'selesai' : 'belum selesai'}`
+                success: success,
+                message: success ? 'Task berhasil dihapus' : 'Gagal menghapus task'
             };
             
         } catch (error) {
@@ -325,7 +274,7 @@ class TaskController {
     }
     
     /**
-     * Search task
+     * Search tasks
      * @param {string} query - Search query
      * @returns {Object} - Response dengan hasil search
      */
@@ -334,7 +283,7 @@ class TaskController {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk mencari task'
                 };
             }
             
@@ -345,16 +294,15 @@ class TaskController {
                 };
             }
             
-            // Search semua task, lalu filter untuk current user
-            const allResults = this.taskRepository.search(query);
-            const userResults = allResults.filter(task => 
-                task.ownerId === this.currentUser.id || task.assigneeId === this.currentUser.id
-            );
+            const tasks = this.taskRepository.search(query);
+            
+            // Filter hanya task milik current user
+            const userTasks = tasks.filter(task => task.ownerId === this.currentUser.id);
             
             return {
                 success: true,
-                data: userResults,
-                count: userResults.length,
+                data: userTasks,
+                count: userTasks.length,
                 query: query
             };
             
@@ -367,15 +315,78 @@ class TaskController {
     }
     
     /**
+     * Get overdue tasks
+     * @returns {Object} - Response dengan overdue tasks
+     */
+    getOverdueTasks() {
+        try {
+            if (!this.currentUser) {
+                return {
+                    success: false,
+                    error: 'User harus login untuk melihat task'
+                };
+            }
+            
+            const overdueTasks = this.taskRepository.findOverdue();
+            // Filter hanya task milik current user
+            const userOverdueTasks = overdueTasks.filter(task => task.ownerId === this.currentUser.id);
+            
+            return {
+                success: true,
+                data: userOverdueTasks,
+                count: userOverdueTasks.length
+            };
+            
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    /**
+     * Get tasks due soon
+     * @param {number} days - Number of days
+     * @returns {Object} - Response dengan tasks due soon
+     */
+    getTasksDueSoon(days = 3) {
+        try {
+            if (!this.currentUser) {
+                return {
+                    success: false,
+                    error: 'User harus login untuk melihat task'
+                };
+            }
+            
+            const dueSoonTasks = this.taskRepository.findDueSoon(days);
+            // Filter hanya task milik current user
+            const userDueSoonTasks = dueSoonTasks.filter(task => task.ownerId === this.currentUser.id);
+            
+            return {
+                success: true,
+                data: userDueSoonTasks,
+                count: userDueSoonTasks.length
+            };
+            
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    /**
      * Get task statistics
-     * @returns {Object} - Response dengan statistik task
+     * @returns {Object} - Response dengan task statistics
      */
     getTaskStats() {
         try {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk melihat statistik'
                 };
             }
             
@@ -395,26 +406,50 @@ class TaskController {
     }
     
     /**
-     * Get overdue tasks
-     * @returns {Object} - Response dengan task yang overdue
+     * Toggle task status
+     * @param {string} taskId - Task ID
+     * @param {string} status - Status baru (optional)
+     * @returns {Object} - Response dengan task yang diupdate
      */
-    getOverdueTasks() {
+    toggleTaskStatus(taskId, status = null) {
         try {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk mengupdate status task'
                 };
             }
             
-            const overdueTasks = this.taskRepository.findOverdue()
-                .filter(task => task.ownerId === this.currentUser.id || task.assigneeId === this.currentUser.id);
+            const taskResponse = this.getTask(taskId);
+            if (!taskResponse.success) {
+                return taskResponse;
+            }
             
-            return {
-                success: true,
-                data: overdueTasks,
-                count: overdueTasks.length
-            };
+            const task = taskResponse.data;
+            
+            // Determine new status
+            let newStatus = status;
+            if (!newStatus) {
+                // Cycle through statuses
+                switch (task.status) {
+                    case 'pending':
+                        newStatus = 'in-progress';
+                        break;
+                    case 'in-progress':
+                        newStatus = 'completed';
+                        break;
+                    case 'completed':
+                        newStatus = 'pending';
+                        break;
+                    case 'blocked':
+                        newStatus = 'pending';
+                        break;
+                    default:
+                        newStatus = 'pending';
+                }
+            }
+            
+            return this.updateTask(taskId, { status: newStatus });
             
         } catch (error) {
             return {
@@ -425,26 +460,28 @@ class TaskController {
     }
     
     /**
-     * Get tasks due soon
-     * @param {number} days - Jumlah hari ke depan
-     * @returns {Object} - Response dengan task yang akan due
+     * Filter tasks
+     * @param {Object} filters - Filter criteria
+     * @returns {Object} - Response dengan filtered tasks
      */
-    getTasksDueSoon(days = 3) {
+    filterTasks(filters) {
         try {
             if (!this.currentUser) {
                 return {
                     success: false,
-                    error: 'User harus login terlebih dahulu'
+                    error: 'User harus login untuk filter task'
                 };
             }
             
-            const dueSoonTasks = this.taskRepository.findDueSoon(days)
-                .filter(task => task.ownerId === this.currentUser.id || task.assigneeId === this.currentUser.id);
+            // Tambahkan filter owner ID
+            filters.ownerId = this.currentUser.id;
+            
+            const tasks = this.taskRepository.filter(filters);
             
             return {
                 success: true,
-                data: dueSoonTasks,
-                count: dueSoonTasks.length
+                data: tasks,
+                count: tasks.length
             };
             
         } catch (error) {
