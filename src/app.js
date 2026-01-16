@@ -27,8 +27,8 @@ function initializeApp() {
     console.log('🚀 Initializing Day 2 Task Management System...');
     
     try {
-        // Initialize storage manager
-        app.storage = new EnhancedStorageManager('taskAppDay2', '2.0');
+        // Initialize storage manager - PASTIKAN StorageManager ADA
+        app.storage = new StorageManager('taskAppDay2');
         console.log('✅ Storage manager initialized');
         
         // Initialize repositories
@@ -41,7 +41,7 @@ function initializeApp() {
         app.taskController = new TaskController(app.taskRepository, app.userRepository);
         console.log('✅ Controllers initialized');
         
-        // Initialize view
+        // Initialize view - PASTIKAN TaskView ADA
         app.taskView = new TaskView(app.taskController, app.userController);
         console.log('✅ Views initialized');
         
@@ -321,8 +321,6 @@ function showOverdueTasks() {
             showMessage('Tidak ada task yang overdue', 'info');
         } else {
             showMessage(`Ditemukan ${response.count} task yang overdue`, 'warning');
-            // Filter view untuk menampilkan overdue tasks
-            // Implementasi ini bisa diperbaiki dengan menambah filter khusus
         }
     } else {
         showMessage(response.error, 'error');
